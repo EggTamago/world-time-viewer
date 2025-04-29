@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>World Time Viewer</title>
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: #e0f7fa;
+      padding: 20px;
+      text-align: center;
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+    .globe-container {
+      position: relative;
+      width: 480px;
+      margin: 0 auto 20px;
+    }
+    .globe {
+      width: 100%;
+      border-radius: 50%;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      display: block;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    .pin {
+      position: absolute;
+      font-size: 24px;
+      transform: translate(-50%, -100%);
+      cursor: pointer;
+    }
+    .popup {
+      display: none;
+      position: absolute;
+      top: -40px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #ffffff;
+      color: #333;
+      padding: 5px 10px;
+      border-radius: 10px;
+      font-size: 14px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    #time-cards {
+      display: flex;
+      overflow-x: auto;
+      white-space: nowrap;
+      gap: 10px;
+      margin: 20px auto;
+      justify-content: center;
+      max-width: 90vw;
+    }
+    .add-city-form {
+      margin: 20px auto;
+      max-width: 400px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      text-align: left;
+    }
+    .add-city-form input,
+    .add-city-form button {
+      padding: 10px;
+      font-size: 1em;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+    }
+    .add-city-form button {
+      background-color: #4db6ac;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    .add-city-form button:hover {
+      background-color: #00897b;
+    }
+    .error {
+      color: #f88;
+      font-size: 0.9em;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      overflow-x: auto;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      font-size: 0.9em;
+      white-space: nowrap;
+    }
+    th {
+      background-color: #b2ebf2;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    td:first-child {
+      font-weight: bold;
+      background-color: #e0f2f1;
+    }
+    .scroll-container {
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>World Time Viewer</h1>
+  <div class="globe-container" id="globe-container">
+    <img src="world.png" alt="Earth" class="globe" draggable="false">
+  </div>
+
+  <div id="time-cards"></div>
+
+  <div class="add-city-form">
+    <input type="text" id="new-city-name" placeholder="City Name (e.g., Paris)">
+    <button id="addCityButton">➕ Add City</button>
+    <div id="errorMessage" class="error"></div>
+  </div>
+
+  <div class="scroll-container">
+    <table id="world-time-table">
+      <thead>
+        <tr id="header-row"><th>City (UTC Offset)</th></tr>
+      </thead>
+      <tbody id="table-body"></tbody>
+    </table>
+  </div>
+
+  <script>
+    const cities = [
+      { name: 'Tokyo',   tz: 'Asia/Tokyo' },
+      { name: 'London',  tz: 'Europe/London' },
+      { name: 'New York',tz: 'America/New_York' }
+    ];
+
+    const cityToPinPosition = {
+      tokyo: { top: '43%', left: '62%' },
+      'new york': { top: '35%', left: '28%' },
+      london: { top: '30%', left: '45%' },
+      paris: { top: '30%', left: '48%' },
+      'los angeles': { top: '35%', left: '22%' },
+      beijing: { top: '40%', left: '67%' },
+      mumbai: { top: '55%', left: '60%' },
+      rome: { top: '40%', left: '50%' }
+    };
+
+    const timeZoneMap = {
+      london: 'Europe/London',
+      tokyo: 'Asia/Tokyo',
+      'new york': 'America/New_York',
+      paris: 'Europe/Paris',
+      sydney: 'Australia/Sydney',
+      'los angeles': 'America/Los_Angeles',
+      beijing: 'Asia/Shanghai',
+      mumbai: 'Asia/Kolkata',
+      rome: 'Europe/Rome',
+      moscow: 'Europe/Moscow',
+      cairo: 'Africa/Cairo',
+      singapore: 'Asia/Singapore',
+      bangkok: 'Asia/Bangkok',
+      dubai: 'Asia/Dubai',
+      berlin: 'Europe/Berlin',
+      chicago: 'America/Chicago',
+      toronto: 'America/Toronto',
+      madrid: 'Europe/Madrid',
+      'sao paulo': 'America/Sao_Paulo',
+      'mexico city': 'America/Mexico_City'
+    };
+
+    function getUTCOffset(tz) {
+      const now = new Date();
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(now);
+      const tzn = parts.find(p => p.type === 'timeZoneName').value;
+      const m = tzn.match(/GMT([+-]?\d+)/);
+      return m ? parseInt(m[1], 10) : 0;
+    }
+
+    function formatHour(h) { return h.toString().padStart(2, '0') + ':00'; }
+
+    function renderTable() {
+      const header = document.getElementById('header-row');
+      const body = document.getElementById('table-body');
+      header.innerHTML = '<th>City (UTC Offset)</th>';
+      body.innerHTML = '';
+      for (let i = 0; i < 24; i++) header.insertAdjacentHTML('beforeend', `<th>${formatHour(i)}</th>`);
+      cities.forEach(c => {
+        const off = getUTCOffset(c.tz);
+        const row = ['<td>' + c.name + ' (UTC' + (off>=0?'+':'') + off + ')</td>'];
+        for (let i=0;i<24;i++){const lh=(i+off+24)%24;row.push('<td>'+formatHour(lh)+'</td>');}
+        body.insertAdjacentHTML('beforeend','<tr>'+row.join('')+'</tr>');
+      });
+    }
+
+    function updateCurrentTime() {
+      const now = new Date();
+      const container = document.getElementById('time-cards');
+      container.innerHTML = '';
+      cities.forEach(c => {
+        const t = new Intl.DateTimeFormat('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZone:c.tz}).format(now);
+        const d = document.createElement('div');
+        d.style = 'background:#fff;padding:10px;border-radius:10px;min-width:100px;margin:0 5px;';
+        d.innerHTML = `<strong>${c.name}</strong><br><span>${t}</span><br>` +
+                      `<button style="background:none;border:none;cursor:pointer;font-size:1.2em;" onclick="removeCity('${c.name}')">❌</button>`;
+        container.appendChild(d);
+      });
+    }
+
+    function addPin(name) {
+      const key = name.toLowerCase();
+      if (!cityToPinPosition[key]) return;
+      const p = cityToPinPosition[key];
+      const id = 'pin-'+key.replace(/\s+/g,'-');
+      if (document.getElementById(id)) return;
+      document.getElementById('globe-container').insertAdjacentHTML('beforeend',
+        `<div id="${id}" class="pin" style="top:${p.top};left:${p.left}" onclick="togglePopup('pop-${id}')">📍` +
+        `<div id="pop-${id}" class="popup">${name}</div></div>`);
+    }
+
+    function addCity() {
+      const nm = document.getElementById('new-city-name').value.trim();
+      const key = nm.toLowerCase();
+      document.getElementById('errorMessage').textContent='';
+      if (!timeZoneMap[key]) {alert('Unsupported city name.');return;}
+      if (cities.find(c=>c.name.toLowerCase()===key)) {alert('This city is already displayed.');return;}
+      if (cities.length>=5){alert('Max 5 cities.');return;}
+      const city = {name: nm.charAt(0).toUpperCase()+nm.slice(1), tz: timeZoneMap[key]};
+      cities.push(city);
+      renderTable();updateCurrentTime();addPin(city.name);
+      document.getElementById('new-city-name').value='';
+    }
+
+    function removeCity(nm) {
+      const key = nm.toLowerCase();
+      const i = cities.findIndex(c=>c.name.toLowerCase()===key);
+      if (i>-1) cities.splice(i,1);
+      const pin = document.getElementById('pin-'+key.replace(/\s+/g,'-'));
+      if (pin) pin.remove();
+      renderTable();updateCurrentTime();
+    }
+
+    function togglePopup(id){
+      const el=document.getElementById(id);
+      el.style.display=(el.style.display==='block'?'none':'block');
+    }
+
+    document.getElementById('addCityButton').addEventListener('click',addCity);
+    document.getElementById('new-city-name').addEventListener('keypress',e=>{if(e.key==='Enter')addCity();});
+    setInterval(updateCurrentTime,1000);
+    renderTable();updateCurrentTime();cities.forEach(c=>addPin(c.name));
+  </script>
+</body>
+</html>
